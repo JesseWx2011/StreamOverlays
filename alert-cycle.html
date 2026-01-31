@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NWS Broadcast Overlay</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #2c3e50;
+            --text-color: #ffffff;
+            --accent: #f1c40f;
+        }
+
+        body, html {
+            margin: 0; padding: 0; height: 100%;
+            font-family: 'Segoe UI', Roboto, sans-serif;
+            overflow: hidden; background: transparent;
+        }
+
+        #overlay-container {
+            height: 100vh; width: 100%;
+            display: flex; flex-direction: column;
+            color: var(--text-color);
+            transition: background-color 0.8s ease;
+            position: relative;
+        }
+
+        /* ENHANCED NEW ALERT CURTAIN */
+        #new-alert-curtain {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(ellipse at center, #c0392b 0%, #8b0000 100%);
+            color: white;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 100;
+            transform: translateX(-100%);
+        }
+
+        #new-alert-curtain::before {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 10px,
+                rgba(255,255,255,0.03) 10px,
+                rgba(255,255,255,0.03) 20px
+            );
+            animation: scan 2s linear infinite;
+        }
+
+        @keyframes scan {
+            0% { transform: translateY(0); }
+            100% { transform: translateY(20px); }
+        }
+
+        .slide-in {
+            animation: slideIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+        }
+
+        .slide-out {
+            animation: slideOut 0.5s cubic-bezier(0.6, 0.04, 0.98, 0.34) forwards;
+        }
+
+        @keyframes slideIn {
+            from { transform: translateX(-100%); }
+            to { transform: translateX(0); }
+        }
+
+        @keyframes slideOut {
+            from { transform: translateX(0); }
+            to { transform: translateX(100%); }
+        }
+
+        .alert-text {
+            font-weight: 900;
+            font-size: 6rem;
+            text-shadow: 0 0 30px rgba(255,0,0,0.8), 0 0 60px rgba(255,0,0,0.5);
+            letter-spacing: 0.2em;
+            position: relative;
+            z-index: 2;
+        }
+
+        .pulse-ring {
+            position: absolute;
+            width: 300px;
+            height: 300px;
+            border: 3px solid rgba(255,255,255,0.6);
+            border-radius: 50%;
+            animation: pulse-ring 2s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+
+        @keyframes pulse-ring {
+            0% {
+                transform: scale(0.5);
+                opacity: 1;
+            }
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+
+        /* LAYOUT */
+        .header { 
+            padding: 30px 35px; 
+            background: linear-gradient(to bottom, rgba(0,0,0,0.6), rgba(0,0,0,0.3)); 
+            border-bottom: 3px solid rgba(255,255,255,0.15);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        
+        .event-title { 
+            font-size: 3.5rem; 
+            font-weight: 900; 
+            text-transform: uppercase; 
+            line-height: 1.1;
+            text-shadow: 2px 2px 8px rgba(0,0,0,0.5);
+            margin-bottom: 15px;
+        }
+
+        .alert-details {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 12px;
+            margin-top: 15px;
+            font-size: 0.95rem;
+        }
+
+        .detail-row {
+            background: rgba(0,0,0,0.3);
+            padding: 10px 15px;
+            border-radius: 6px;
+            border-left: 3px solid rgba(255,255,255,0.3);
+        }
+
+        .detail-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            opacity: 0.7;
+            letter-spacing: 0.05em;
+            margin-bottom: 4px;
+        }
+
+        .detail-value {
+            font-weight: 700;
+            font-size: 1.1rem;
+        }
+        
+        
+        .ticker-wrap { 
+            background: rgba(0,0,0,0.35); 
+            padding: 12px 0; 
+            overflow: hidden; 
+            white-space: nowrap;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .ticker-content { 
+            display: inline-block; 
+            padding-left: 100%; 
+            animation: ticker 45s linear infinite; 
+            font-size: 1.15rem;
+            font-weight: 500;
+        }
+        
+        @keyframes ticker { 
+            0% { transform: translateX(0); } 
+            100% { transform: translateX(-100%); } 
+        }
+
+        .main-body { 
+            flex-grow: 1; 
+            padding: 35px; 
+            overflow-y: auto; 
+            background: rgba(0,0,0,0.15);
+        }
+
+        .info-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .info-card {
+            background: rgba(0,0,0,0.3);
+            padding: 20px 25px;
+            border-radius: 10px;
+            border-left: 4px solid rgba(255,255,255,0.4);
+        }
+
+        .info-card-title {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            opacity: 0.8;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .info-card-title i {
+            margin-right: 8px;
+        }
+
+        .info-card-content {
+            font-size: 1.3rem;
+            line-height: 1.6;
+            font-weight: 500;
+        }
+
+        /* CONVECTIVE PARAMETERS */
+        .params-row { 
+            display: flex; 
+            gap: 20px; 
+            padding: 20px 35px; 
+            background: rgba(0,0,0,0.3);
+            border-top: 2px solid rgba(255,255,255,0.15);
+            border-bottom: 2px solid rgba(255,255,255,0.15);
+        }
+        
+        .param-box { 
+            flex: 1; 
+            text-align: center; 
+            padding: 15px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .param-val { 
+            font-size: 2rem; 
+            font-weight: 900; 
+            display: block;
+            margin-bottom: 8px;
+        }
+        
+        .param-label { 
+            font-size: 0.75rem; 
+            text-transform: uppercase; 
+            opacity: 0.8;
+            letter-spacing: 0.05em;
+        }
+        
+        .danger-warn { 
+            color: #ffeb3b; 
+            animation: pulse 1s infinite;
+            text-shadow: 0 0 10px rgba(255,235,59,0.5);
+        }
+        
+        @keyframes pulse { 
+            0% { opacity: 1; } 
+            50% { opacity: 0.6; } 
+            100% { opacity: 1; } 
+        }
+
+        /* PROGRESS BARS */
+        .cycle-bar-wrap { 
+            height: 6px; 
+            width: 100%; 
+            background: rgba(0,0,0,0.4);
+        }
+        
+        #cycle-bar { 
+            height: 100%; 
+            width: 0%; 
+            background: linear-gradient(to right, #fff, #f1c40f);
+            transition: width 0.1s linear;
+            box-shadow: 0 0 10px rgba(255,255,255,0.5);
+        }
+        
+        .expiry-bar-wrap { 
+            height: 18px; 
+            width: 100%; 
+            background: rgba(0,0,0,0.6); 
+            position: relative;
+        }
+        
+        #expiry-bar { 
+            height: 100%; 
+            width: 100%; 
+            background: linear-gradient(to right, #27ae60, #2ecc71);
+            transition: width 1s linear;
+            box-shadow: inset 0 0 10px rgba(0,0,0,0.3);
+        }
+
+        /* THEMES */
+        .theme-tor { background: linear-gradient(135deg, #8e44ad 0%, #6c3483 100%) !important; }
+        .theme-svr { background: linear-gradient(135deg, #c0392b 0%, #922b21 100%) !important; }
+        .theme-ffw { background: linear-gradient(135deg, #2980b9 0%, #1f618d 100%) !important; }
+        .theme-winter-storm { background: linear-gradient(135deg, #db34d5 0%, #b9298e 100%) !important; }
+        .theme-blizzard { background: linear-gradient(135deg, #ecf0f1 0%, #95a5a6 100%) !important; color: #2c3e50 !important; }
+        .theme-ice-storm { background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%) !important; }
+        .theme-winter-weather { background: linear-gradient(135deg, #5f9ea0 0%, #4682b4 100%) !important; }
+        .theme-freeze { background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%) !important; }
+        .theme-wind-chill { background: linear-gradient(135deg, #bdc3c7 0%, #7f8c8d 100%) !important; }
+        .theme-win { background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%) !important; }
+        .theme-def { background: linear-gradient(135deg, #34495e 0%, #2c3e50 100%) !important; }
+
+        /* Scrollbar styling */
+        .main-body::-webkit-scrollbar {
+            width: 8px;
+        }
+        
+        .main-body::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+        }
+        
+        .main-body::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.3);
+            border-radius: 4px;
+        }
+        
+        .main-body::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.5);
+        }
+    </style>
+</head>
+<body>
+
+    <div id="new-alert-curtain">
+        <div class="pulse-ring"></div>
+        <div class="pulse-ring" style="animation-delay: 0.5s;"></div>
+        <div class="pulse-ring" style="animation-delay: 1s;"></div>
+        <div class="alert-text" id="alert-curtain-text">⚠ NEW ALERT ⚠</div>
+    </div>
+
+    <div id="overlay-container" class="theme-def">
+        <div class="cycle-bar-wrap"><div id="cycle-bar"></div></div>
+        
+        <div class="header">
+            <div class="event-title" id="event-name">SCANNING...</div>
+            
+            <div class="alert-details">
+                <div class="detail-row">
+                    <div class="detail-label">Alert Issued</div>
+                    <div class="detail-value" id="time-issued">--:--</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Alert Expires</div>
+                    <div class="detail-value" id="time-expires">--:--</div>
+                </div>
+                <div class="detail-row">
+                    <div class="detail-label">Time Remaining</div>
+                    <div class="detail-value" id="time-left">--:--</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="ticker-wrap">
+            <div id="ticker" class="ticker-content">Waiting for NWS Data Stream...</div>
+        </div>
+
+        <div class="main-body" id="info-section">
+            <div class="info-grid">
+                <div class="info-card">
+                    <div class="info-card-title"><i class="far fa-calendar-alt"></i>Alert Issued</div>
+                    <div class="info-card-content" id="full-issued">Loading...</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-card-title"><i class="far fa-clock"></i>Alert Expires</div>
+                    <div class="info-card-content" id="full-expires">Loading...</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-card-title"><i class="fas fa-building"></i>Issued By</div>
+                    <div class="info-card-content" id="nws-office">Loading...</div>
+                </div>
+                <div class="info-card">
+                    <div class="info-card-title"><i class="fas fa-map-marker-alt"></i>Areas Affected</div>
+                    <div class="info-card-content" id="areas-affected">Loading...</div>
+                </div>
+            </div>
+        </div>
+
+        <div id="params-area" class="params-row" style="display:none">
+            <div class="param-box">
+                <span class="param-val" id="p-wind">--</span>
+                <span class="param-label">Wind Gusts (mph)</span>
+            </div>
+            <div class="param-box">
+                <span class="param-val" id="p-hail">--</span>
+                <span class="param-label">Max Hail Size</span>
+            </div>
+            <div class="param-box">
+                <span class="param-val" id="p-tor">--</span>
+                <span class="param-label">Tornado Risk</span>
+            </div>
+        </div>
+
+        <div class="expiry-bar-wrap">
+            <div id="expiry-bar"></div>
+        </div>
+    </div>
+
+<script>
+    let alerts = [];
+    let currentIndex = 0;
+    let cycleInterval = null;
+    let isLocked = false;
+    let knownAlertIds = new Set(); // Tracks ALL alert IDs ever seen (persists)
+    let knownAlertVTEC = new Map(); // Tracks VTEC codes for update detection
+    let lastFetchAlertIds = new Set(); // IDs from the previous fetch
+
+    async function fetchAlerts() {
+        try {
+            const res = await fetch('https://api.weather.gov/alerts/active');
+            const data = await res.json();
+            
+            // Define which alert types we support with themes
+            const supportedAlerts = [
+                'tornado', 'thunderstorm', 'flood', 'blizzard', 'winter storm',
+                'ice storm', 'winter weather', 'freeze', 'frost', 'wind chill',
+                'extreme cold', 'winter'
+            ];
+            
+            // Filter for supported alerts and sort by priority
+            alerts = data.features
+                .filter(a => {
+                    const ev = a.properties.event.toLowerCase();
+                    return supportedAlerts.some(type => ev.includes(type));
+                })
+                .sort((a, b) => {
+                    const p = ["Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning"];
+                    return p.indexOf(b.properties.event) - p.indexOf(a.properties.event);
+                });
+
+            // Check for NEW alerts and UPDATED alerts
+            const currentAlertIds = new Set(alerts.map(a => a.properties.id));
+            const newAlerts = alerts.filter(a => !knownAlertIds.has(a.properties.id));
+            
+            // Check for updated alerts by comparing VTEC codes
+            const updatedAlerts = alerts.filter(a => {
+                const vtec = getVTECCode(a.properties);
+                if (!vtec) return false;
+                
+                // Check if we've seen this VTEC before with a different ID
+                const existingAlert = Array.from(knownAlertVTEC.entries())
+                    .find(([id, code]) => code === vtec && id !== a.properties.id);
+                
+                return existingAlert !== undefined;
+            });
+            
+            // If there are genuinely new alerts, trigger the curtain
+            if (newAlerts.length > 0) {
+                console.log(`NEW ALERTS DETECTED: ${newAlerts.length}`);
+                triggerNewAlertUnveil('NEW ALERT');
+                
+                // Add all new alert IDs and VTEC codes to known sets
+                newAlerts.forEach(a => {
+                    knownAlertIds.add(a.properties.id);
+                    const vtec = getVTECCode(a.properties);
+                    if (vtec) knownAlertVTEC.set(a.properties.id, vtec);
+                });
+            } else if (updatedAlerts.length > 0) {
+                console.log(`UPDATED ALERTS DETECTED: ${updatedAlerts.length}`);
+                triggerNewAlertUnveil('ALERT UPDATE');
+                
+                // Update the known IDs
+                updatedAlerts.forEach(a => {
+                    knownAlertIds.add(a.properties.id);
+                    const vtec = getVTECCode(a.properties);
+                    if (vtec) knownAlertVTEC.set(a.properties.id, vtec);
+                });
+            }
+            
+            // Update last fetch IDs
+            lastFetchAlertIds = currentAlertIds;
+
+            // Start rendering if not already cycling
+            if (!cycleInterval && alerts.length > 0) {
+                renderAlert(0);
+            }
+        } catch (e) { 
+            console.error("API Error", e); 
+        }
+    }
+
+    function getVTECCode(properties) {
+        // Extract VTEC code from the alert parameters
+        if (properties.parameters && properties.parameters.VTEC) {
+            return properties.parameters.VTEC[0];
+        }
+        return null;
+    }
+
+    function formatAreasWithState(properties) {
+        // Get base area description
+        let areaDesc = properties.areaDesc || 'Information not available';
+        
+        // Try to extract state from geocode if available
+        if (properties.geocode && properties.geocode.UGC) {
+            // UGC codes are like "FLZ134" where FL is the state
+            const ugcCodes = properties.geocode.UGC;
+            const states = new Set();
+            
+            ugcCodes.forEach(code => {
+                if (code.length >= 2) {
+                    const stateCode = code.substring(0, 2);
+                    states.add(stateCode);
+                }
+            });
+            
+            if (states.size > 0) {
+                const stateList = Array.from(states).join(', ');
+                return `${areaDesc} (${stateList})`;
+            }
+        }
+        
+        return areaDesc;
+    }
+
+    function renderAlert(index) {
+        if (!alerts[index]) return;
+        currentIndex = index;
+        const alert = alerts[index];
+        const p = alert.properties;
+
+        // Restart ticker animation
+        const ticker = document.getElementById('ticker');
+        ticker.style.animation = 'none';
+        setTimeout(() => {
+            ticker.style.animation = 'ticker 45s linear infinite';
+        }, 10);
+
+        // Apply Theme
+        const container = document.getElementById('overlay-container');
+        const ev = p.event.toLowerCase();
+        
+        // Determine theme based on alert type
+        let theme = 'theme-def';
+        if (ev.includes('tornado')) {
+            theme = 'theme-tor';
+        } else if (ev.includes('thunderstorm')) {
+            theme = 'theme-svr';
+        } else if (ev.includes('flood')) {
+            theme = 'theme-ffw';
+        } else if (ev.includes('blizzard')) {
+            theme = 'theme-blizzard';
+        } else if (ev.includes('winter storm')) {
+            theme = 'theme-winter-storm';
+        } else if (ev.includes('ice storm')) {
+            theme = 'theme-ice-storm';
+        } else if (ev.includes('winter weather')) {
+            theme = 'theme-winter-weather';
+        } else if (ev.includes('freeze') || ev.includes('frost')) {
+            theme = 'theme-freeze';
+        } else if (ev.includes('wind chill') || ev.includes('extreme cold')) {
+            theme = 'theme-wind-chill';
+        } else if (ev.includes('winter')) {
+            theme = 'theme-win';
+        }
+        
+        container.className = theme;
+
+        // Core Text
+        document.getElementById('event-name').innerText = p.event;
+        document.getElementById('ticker').innerText = `${p.areaDesc} • `.repeat(3);
+        
+        // NWS Office
+        document.getElementById('nws-office').innerText = p.senderName || 'National Weather Service';
+        
+        // Areas Affected - extract and format with state context
+        const formattedAreas = formatAreasWithState(p);
+        document.getElementById('areas-affected').innerText = formattedAreas;
+        
+        // Times - Full format in info cards with timezone
+        const sent = new Date(p.sent);
+        const expires = new Date(p.expires);
+        
+        const dateFormatWithTZ = {
+            weekday: 'short',
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+            hour: '2-digit', 
+            minute: '2-digit',
+            timeZoneName: 'short'
+        };
+        
+        document.getElementById('full-issued').innerText = sent.toLocaleString([], dateFormatWithTZ);
+        document.getElementById('full-expires').innerText = expires.toLocaleString([], dateFormatWithTZ);
+        
+        // Times in header detail rows with timezone
+        document.getElementById('time-issued').innerText = sent.toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit', 
+            minute: '2-digit',
+            timeZoneName: 'short'
+        });
+        
+        document.getElementById('time-expires').innerText = expires.toLocaleString([], {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit', 
+            minute: '2-digit',
+            timeZoneName: 'short'
+        });
+
+
+        // Convective Params (Wind, Hail, Tor)
+        const params = p.parameters || {};
+        const paramsArea = document.getElementById('params-area');
+        
+        if (params.maxWindGust || params.maxHailSize || params.tornadoPossibility) {
+            paramsArea.style.display = 'flex';
+            const wind = params.maxWindGust ? params.maxWindGust[0] : "N/A";
+            const hail = params.maxHailSize ? params.maxHailSize[0] + '"' : "N/A";
+            const tor = params.tornadoPossibility ? params.tornadoPossibility[0] : "NONE";
+            
+            const windVal = parseInt(wind);
+            document.getElementById('p-wind').innerHTML = windVal >= 80 ? 
+                `<span class="danger-warn">⚠️ ${wind}</span>` : wind;
+            document.getElementById('p-hail').innerText = hail;
+            document.getElementById('p-tor').innerText = ev.includes('tornado') ? "CONFIRMED" : tor;
+        } else {
+            paramsArea.style.display = 'none';
+        }
+
+        // Start display cycle
+        const isPriority = ["Tornado Warning", "Severe Thunderstorm Warning", "Flash Flood Warning"].includes(p.event);
+        startTimers(isPriority ? 40000 : 20000, p.sent, p.expires);
+    }
+
+    function triggerNewAlertUnveil(text = 'NEW ALERT') {
+        const curtain = document.getElementById('new-alert-curtain');
+        const curtainText = document.getElementById('alert-curtain-text');
+        
+        curtainText.innerText = `⚠ ${text} ⚠`;
+        curtain.style.display = 'flex';
+        curtain.classList.remove('slide-out');
+        curtain.classList.add('slide-in');
+        
+        // After slide in completes (0.5s) + 2s display = 2.5s, then slide out
+        setTimeout(() => {
+            curtain.classList.remove('slide-in');
+            curtain.classList.add('slide-out');
+            // After slide out completes (0.5s), hide
+            setTimeout(() => { 
+                curtain.style.display = 'none'; 
+            }, 500);
+        }, 2500);
+    }
+
+    function startTimers(duration, sentStr, expireStr) {
+        if (cycleInterval) clearInterval(cycleInterval);
+        const start = Date.now();
+        const expires = new Date(expireStr).getTime();
+        const sent = new Date(sentStr).getTime();
+
+        cycleInterval = setInterval(() => {
+            const now = Date.now();
+            
+            // Display cycle bar (top)
+            const cycleElapsed = now - start;
+            const cyclePct = (cycleElapsed / duration) * 100;
+            document.getElementById('cycle-bar').style.width = Math.min(cyclePct, 100) + '%';
+
+            // Lifespan bar (bottom)
+            const totalLife = expires - sent;
+            const currentLife = now - sent;
+            const lifePct = 100 - ((currentLife / totalLife) * 100);
+            const expiryBar = document.getElementById('expiry-bar');
+            expiryBar.style.width = Math.max(Math.min(lifePct, 100), 0) + '%';
+            
+            // Change color as it gets closer to expiration
+            if (lifePct < 20) {
+                expiryBar.style.background = 'linear-gradient(to right, #e74c3c, #c0392b)';
+            } else if (lifePct < 50) {
+                expiryBar.style.background = 'linear-gradient(to right, #f39c12, #e67e22)';
+            } else {
+                expiryBar.style.background = 'linear-gradient(to right, #27ae60, #2ecc71)';
+            }
+            
+            // Time remaining text in DD:HH:MM format
+            const diff = expires - now;
+            if (diff > 0) {
+                const days = Math.floor(diff / 86400000);
+                const hours = Math.floor((diff % 86400000) / 3600000);
+                const mins = Math.floor((diff % 3600000) / 60000);
+                
+                let timeStr = '';
+                if (days > 0) {
+                    timeStr = `${days}d ${hours}h ${mins}m`;
+                } else if (hours > 0) {
+                    timeStr = `${hours}h ${mins}m`;
+                } else {
+                    timeStr = `${mins}m`;
+                }
+                document.getElementById('time-left').innerText = timeStr;
+            } else {
+                document.getElementById('time-left').innerText = "EXPIRED";
+            }
+
+            if (!isLocked && cyclePct >= 100) {
+                clearInterval(cycleInterval);
+                if (alerts.length > 0) {
+                    renderAlert((currentIndex + 1) % alerts.length);
+                }
+            }
+        }, 100);
+    }
+
+    window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space') {
+            isLocked = !isLocked;
+            console.log(`Cycling ${isLocked ? 'LOCKED' : 'UNLOCKED'}`);
+        }
+        if (e.key === 'ArrowRight' && alerts.length > 0) {
+            renderAlert((currentIndex + 1) % alerts.length);
+        }
+        if (e.key === 'ArrowLeft' && alerts.length > 0) {
+            renderAlert((currentIndex - 1 + alerts.length) % alerts.length);
+        }
+    });
+
+    // Fetch alerts every 60 seconds
+    setInterval(fetchAlerts, 60000);
+    fetchAlerts();
+</script>
+</body>
+</html>
