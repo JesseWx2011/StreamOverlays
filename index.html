@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Weather Alert Ticker</title>
+    <title>Weather Alert Ticker + SPC</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
     <style>
         * {
@@ -76,14 +76,14 @@
         }
 
         .alert-type-text {
-         position: absolute;
-    width: 100%;
-    height: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 2.5vh;
-    font-family: Rubik;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 2.5vh;
+            font-family: Rubik, sans-serif;
         }
 
         .alert-type-text.slide-out {
@@ -145,51 +145,18 @@
             100% { transform: translateX(-100%); }
         }
 
-        /* Alert Type Colors */
-        .color-tornado {
-            background-color: #8e44ad !important;
-        }
-
-        .color-severe-thunderstorm {
-            background-color: #c0392b !important;
-        }
-
-        .color-flash-flood {
-            background-color: #2980b9 !important;
-        }
-
-        .color-blizzard {
-            background-color: #ecf0f1 !important;
-            color: #2c3e50 !important;
-        }
-
-        .color-winter-storm {
-            background-color: #3498db !important;
-        }
-
-        .color-ice-storm {
-            background-color: #74b9ff !important;
-        }
-
-        .color-winter-weather {
-            background-color: #5f9ea0 !important;
-        }
-
-        .color-freeze {
-            background-color: #1e3a8a !important;
-        }
-
-        .color-wind-chill {
-            background-color: #7f8c8d !important;
-        }
-
-        .color-winter {
-            background-color: #34495e !important;
-        }
-
-        .color-default {
-            background-color: #2b2b2b !important;
-        }
+        /* NWS Alert Type Colors */
+        .color-tornado { background-color: #8e44ad !important; }
+        .color-severe-thunderstorm { background-color: #c0392b !important; }
+        .color-flash-flood { background-color: #2980b9 !important; }
+        .color-blizzard { background-color: #ecf0f1 !important; color: #2c3e50 !important; }
+        .color-winter-storm { background-color: #3498db !important; }
+        .color-ice-storm { background-color: #74b9ff !important; }
+        .color-winter-weather { background-color: #5f9ea0 !important; }
+        .color-freeze { background-color: #1e3a8a !important; }
+        .color-wind-chill { background-color: #7f8c8d !important; }
+        .color-winter { background-color: #34495e !important; }
+        .color-default { background-color: #2b2b2b !important; }
 
         /* Loading state */
         .loading {
@@ -211,7 +178,7 @@
             </div>
             <div id="alert-areas">
                 <div class="scrolling-text-container active">
-                    <div class="scrolling-text">Connecting to NWS API...</div>
+                    <div class="scrolling-text">Connecting to NWS & SPC API...</div>
                 </div>
             </div>
         </div>
@@ -219,24 +186,61 @@
 
 <script>
     let alerts = [];
+    let spcOutlook = null; // Stores the highest risk SPC outlook
     let currentIndex = 0;
     let cycleInterval = null;
-    let knownAlertIds = new Set();
-    let knownAlertVTEC = new Map();
+    
+    // Timer variables for SPC injection
+    let lastSpcShowTime = 0;
+    const SPC_INTERVAL_MS = 180000; // 3 minutes
 
+    // --- SPC FETCH LOGIC ---
+    async function fetchSpcOutlook() {
+        try {
+            const res = await fetch('https://www.spc.noaa.gov/products/outlook/day1otlk_cat.nolyr.geojson');
+            const data = await res.json();
+
+            if (!data.features || data.features.length === 0) {
+                spcOutlook = null;
+                return;
+            }
+
+            // Find highest risk
+            // SPC DN codes: 2=TSTM, 3=MRGL, 4=SLGT, 5=ENH, 6=MDT, 8=HIGH
+            let maxRisk = null;
+            let maxDN = -1;
+
+            data.features.forEach(f => {
+                const props = f.properties;
+                const dn = parseInt(props.DN);
+                if (dn > maxDN) {
+                    maxDN = dn;
+                    maxRisk = props;
+                }
+            });
+
+            if (maxRisk) {
+                spcOutlook = maxRisk;
+                console.log("SPC Outlook Updated:", spcOutlook.LABEL);
+            }
+
+        } catch (e) {
+            console.error("SPC API Error", e);
+        }
+    }
+
+    // --- NWS ALERTS FETCH LOGIC ---
     async function fetchAlerts() {
         try {
             const res = await fetch('https://api.weather.gov/alerts/active');
             const data = await res.json();
             
-            // Define which alert types we support with themes
             const supportedAlerts = [
                 'tornado', 'thunderstorm', 'flood', 'blizzard', 'winter storm',
                 'ice storm', 'winter weather', 'freeze', 'frost', 'wind chill',
                 'extreme cold', 'winter'
             ];
             
-            // Filter for supported alerts and sort by priority
             alerts = data.features
                 .filter(a => {
                     const ev = a.properties.event.toLowerCase();
@@ -247,24 +251,32 @@
                     return p.indexOf(b.properties.event) - p.indexOf(a.properties.event);
                 });
 
-            console.log(`Found ${alerts.length} alerts`);
+            console.log(`Found ${alerts.length} NWS alerts`);
 
             // Start rendering if not already cycling
-            if (!cycleInterval && alerts.length > 0) {
-                renderAlert(0);
-                startCycling();
-            } else if (alerts.length === 0) {
-                showNoAlerts();
+            if (!cycleInterval) {
+                if(alerts.length > 0) {
+                    renderAlert(0);
+                    startCycling();
+                } else {
+                    if(spcOutlook) {
+                       renderSpcOutlook(true);
+                       startCycling();
+                    } else {
+                       showNoAlerts();
+                       startCycling();
+                    }
+                }
             }
         } catch (e) { 
-            console.error("API Error", e);
-            showError();
+            console.error("NWS API Error", e);
+            if (!cycleInterval) showError();
         }
     }
 
+    // --- HELPERS ---
     function getColorClass(eventName) {
         const ev = eventName.toLowerCase();
-        
         if (ev.includes('tornado')) return 'color-tornado';
         if (ev.includes('severe thunderstorm')) return 'color-severe-thunderstorm';
         if (ev.includes('flash flood') || ev.includes('flood')) return 'color-flash-flood';
@@ -275,47 +287,102 @@
         if (ev.includes('freeze') || ev.includes('frost')) return 'color-freeze';
         if (ev.includes('wind chill') || ev.includes('extreme cold')) return 'color-wind-chill';
         if (ev.includes('winter')) return 'color-winter';
-        
         return 'color-default';
     }
 
     function formatAreasWithState(properties) {
         let areaDesc = properties.areaDesc || 'Information not available';
-        
         if (properties.geocode && properties.geocode.UGC) {
             const ugcCodes = properties.geocode.UGC;
             const states = new Set();
-            
             ugcCodes.forEach(code => {
-                if (code.length >= 2) {
-                    const stateCode = code.substring(0, 2);
-                    states.add(stateCode);
-                }
+                if (code.length >= 2) states.add(code.substring(0, 2));
             });
-            
-            if (states.size > 0) {
-                const stateList = Array.from(states).join(', ');
-                return `${areaDesc} (${stateList})`;
+            if (states.size > 0) return `${areaDesc} (${Array.from(states).join(', ')})`;
+        }
+        return areaDesc;
+    }
+
+    // --- RENDERERS ---
+
+    function renderSpcOutlook(animate = false) {
+        if (!spcOutlook) return;
+
+        // Custom Message Mapping
+        const riskMessages = {
+            "TSTM": "Thunderstorms Possible in highlighted areas.",
+            "MRGL": "Some Isolated Thunderstorms may become severe.",
+            "SLGT": "Convection can be expected in highlighted areas with tornadoes possible.",
+            "ENH": "Severe Thunderstorms are expected, with all threats possible.",
+            "MDT": "Severe Thunderstorms may become dangerous in some cases.",
+            "HIGH": "A Historical Severe Weather Outbreak is expected with all threats likely. Expect dangerous severe weather in each convective category."
+        };
+
+        const label = spcOutlook.LABEL; // e.g., TSTM, SLGT
+        const label2 = spcOutlook.LABEL2; // e.g., "Slight Risk" or empty
+        
+        let message = "";
+
+        // Logic: Check if LABEL2 is empty first
+        if (!label2 || label2.trim() === "") {
+            message = "No severe thunderstorms expected today.";
+        } else {
+            // Lookup message based on the LABEL code
+            if (riskMessages[label]) {
+                message = riskMessages[label];
+            } else {
+                // Fallback if the code isn't in our map
+                message = `${label2} expected today.`;
             }
         }
+
+        // Format Date
+        const expireStr = spcOutlook.EXPIRE; 
+        const year = expireStr.substring(0,4);
+        const month = expireStr.substring(4,6) - 1; 
+        const day = expireStr.substring(6,8);
+        const hour = expireStr.substring(8,10);
+        const min = expireStr.substring(10,12);
         
-        return areaDesc;
+        const expiresDate = new Date(Date.UTC(year, month, day, hour, min));
+        const expiresText = expiresDate.toLocaleString([], {
+            month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
+        });
+
+        const eventName = "SPC OUTLOOK";
+        const fillColor = spcOutlook.fill; 
+
+        if (animate) {
+            animateAlertChange(eventName, message, null, expiresText, fillColor);
+        } else {
+            const alertType = document.getElementById('alert-type');
+            const alertExpiration = document.getElementById('alert-expiration');
+            const alertAreas = document.getElementById('alert-areas');
+
+            alertExpiration.innerHTML = `<i class="far fa-clock"></i>&nbsp;&nbsp;Outlook Valid Until: ${expiresText}`;
+            
+            alertType.className = ''; 
+            alertType.style.backgroundColor = fillColor;
+            alertType.innerHTML = `<div class="alert-type-text active">${eventName}</div>`;
+            
+            alertAreas.innerHTML = `
+                <div class="scrolling-text-container active">
+                    <div class="scrolling-text">${message} • ${message}</div>
+                </div>
+            `;
+        }
     }
 
     function renderAlert(index, animate = false) {
         if (!alerts[index]) return;
+        
         currentIndex = index;
         const alert = alerts[index];
         const p = alert.properties;
 
         const expires = new Date(p.expires);
         const expiresText = expires.toLocaleString([], {
-            month: 'numeric',
-            day: 'numeric',
-            year: '2-digit',
-            hour: 'numeric',
-            minute: '2-digit',
-            timeZoneName: 'short'
+            month: 'numeric', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short'
         });
 
         const eventName = p.event;
@@ -323,10 +390,8 @@
         const colorClass = getColorClass(eventName);
 
         if (animate) {
-            // Animate the transition
-            animateAlertChange(eventName, areasText, colorClass, expiresText);
+            animateAlertChange(eventName, areasText, colorClass, expiresText, null);
         } else {
-            // Direct update (first load)
             updateAlertDirect(eventName, areasText, colorClass, expiresText);
         }
     }
@@ -334,16 +399,14 @@
     function updateAlertDirect(eventName, areasText, colorClass, expiresText) {
         const alertType = document.getElementById('alert-type');
         const alertExpiration = document.getElementById('alert-expiration');
+        const alertAreas = document.getElementById('alert-areas');
         
-        // Update expiration
         alertExpiration.innerHTML = `<i class="far fa-clock"></i>&nbsp;&nbsp;Expires At: ${expiresText}`;
         
-        // Update alert type
+        alertType.style.backgroundColor = ''; 
         alertType.className = colorClass;
         alertType.innerHTML = `<div class="alert-type-text active">${eventName}</div>`;
         
-        // Update areas
-        const alertAreas = document.getElementById('alert-areas');
         alertAreas.innerHTML = `
             <div class="scrolling-text-container active">
                 <div class="scrolling-text">${areasText} • ${areasText} • ${areasText}</div>
@@ -351,16 +414,14 @@
         `;
     }
 
-    function animateAlertChange(eventName, areasText, colorClass, expiresText) {
+    function animateAlertChange(eventName, areasText, colorClass, expiresText, customColor) {
         const alertType = document.getElementById('alert-type');
         const alertAreas = document.getElementById('alert-areas');
         const alertExpiration = document.getElementById('alert-expiration');
         
-        // Get current elements
         const currentTypeText = alertType.querySelector('.alert-type-text.active');
         const currentAreasContainer = alertAreas.querySelector('.scrolling-text-container.active');
         
-        // Slide out current content
         if (currentTypeText) {
             currentTypeText.classList.remove('active');
             currentTypeText.classList.add('slide-out');
@@ -371,40 +432,44 @@
             currentAreasContainer.classList.add('slide-out');
         }
         
-        // Create new elements
         const newTypeText = document.createElement('div');
         newTypeText.className = 'alert-type-text slide-in';
         newTypeText.textContent = eventName;
         
         const newAreasContainer = document.createElement('div');
         newAreasContainer.className = 'scrolling-text-container slide-in';
-        newAreasContainer.innerHTML = `<div class="scrolling-text">${areasText} • ${areasText} • ${areasText}</div>`;
         
-        // Add new elements
+        // Adjust repetition for better scrolling visual
+        const repeatCount = areasText.length > 50 ? 2 : 3;
+        const content = Array(repeatCount).fill(areasText).join(' • ');
+        newAreasContainer.innerHTML = `<div class="scrolling-text">${content}</div>`;
+        
         alertType.appendChild(newTypeText);
         alertAreas.appendChild(newAreasContainer);
         
-        // Trigger transition to color
         setTimeout(() => {
-            alertType.className = colorClass;
+            if(customColor) {
+                alertType.className = '';
+                alertType.style.backgroundColor = customColor;
+            } else {
+                alertType.style.backgroundColor = ''; 
+                alertType.className = colorClass;
+            }
         }, 100);
         
-        // Slide in new content
         setTimeout(() => {
             newTypeText.classList.remove('slide-in');
             newTypeText.classList.add('active');
             newAreasContainer.classList.remove('slide-in');
             newAreasContainer.classList.add('active');
             
-            // Update expiration with fade
             alertExpiration.style.opacity = '0';
             setTimeout(() => {
-                alertExpiration.innerHTML = `<i class="far fa-clock"></i>&nbsp;&nbsp;Expires: ${expiresText}`;
+                alertExpiration.innerHTML = `<i class="far fa-clock"></i>&nbsp;&nbsp;${customColor ? 'Outlook Valid' : 'Expires'}: ${expiresText}`;
                 alertExpiration.style.opacity = '1';
             }, 300);
         }, 50);
         
-        // Clean up old elements after animation
         setTimeout(() => {
             if (currentTypeText) currentTypeText.remove();
             if (currentAreasContainer) currentAreasContainer.remove();
@@ -417,6 +482,7 @@
         const alertAreas = document.getElementById('alert-areas');
         
         alertExpiration.innerHTML = '<i class="fas fa-check-circle"></i>&nbsp;&nbsp;No Active Alerts';
+        alertType.style.backgroundColor = '';
         alertType.className = 'color-default';
         alertType.innerHTML = '<div class="alert-type-text active">ALL CLEAR</div>';
         alertAreas.innerHTML = '<div class="scrolling-text-container active"><div class="scrolling-text">No weather alerts at this time</div></div>';
@@ -429,20 +495,33 @@
 
     function startCycling() {
         if (cycleInterval) clearInterval(cycleInterval);
-        
+        lastSpcShowTime = Date.now(); 
+
         cycleInterval = setInterval(() => {
-            if (alerts.length > 1) {
+            const now = Date.now();
+            
+            // PRIORITY: SPC OUTLOOK
+            if (spcOutlook && ((now - lastSpcShowTime > SPC_INTERVAL_MS) || alerts.length === 0)) {
+                renderSpcOutlook(true);
+                lastSpcShowTime = now; 
+                return;
+            }
+
+            // NWS ALERTS
+            if (alerts.length > 0) {
                 const nextIndex = (currentIndex + 1) % alerts.length;
                 renderAlert(nextIndex, true);
+            } else if (!spcOutlook) {
+                showNoAlerts();
             }
-        }, 15000); // Cycle every 15 seconds
+
+        }, 15000); 
     }
 
-    // Fetch alerts every 60 seconds
-    setInterval(fetchAlerts, 60000);
-    fetchAlerts();
-
-    // Add transition to expiration element
+    setInterval(fetchAlerts, 60000); 
+    setInterval(fetchSpcOutlook, 30000); 
+    fetchSpcOutlook().then(fetchAlerts); 
+    
     document.getElementById('alert-expiration').style.transition = 'opacity 0.3s ease';
 </script>
 </body>
